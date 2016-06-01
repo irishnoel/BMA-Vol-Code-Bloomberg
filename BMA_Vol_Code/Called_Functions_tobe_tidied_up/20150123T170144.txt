@@ -1,0 +1,11 @@
+if system_dependent('IsDebugMode')==1, dbstep in; end
+if system_dependent('IsDebugMode')==1, dbstep in; end
+Begining of diary 20150123T170144.txt
+Welcome to matlab configured by Tom with extra paths:
+C:\Matlab_code
+if system_dependent('IsDebugMode')==1, dbstep in; end
+if system_dependent('IsDebugMode')==1, dbstep in; end
+if system_dependent('IsDebugMode')==1, dbcont; end
+startup
+Working directory currently set to 
+C:\Matlab_code\BMA_Vol_Code

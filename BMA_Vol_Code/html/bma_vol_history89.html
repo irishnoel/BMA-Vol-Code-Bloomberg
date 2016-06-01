@@ -1,0 +1,481 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN">
+<html xmlns:mwsh="http://www.mathworks.com/namespace/mcode/v1/syntaxhighlight.dtd">
+   <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   
+      <!--
+This HTML is auto-generated from an M-file.
+To make changes, update the M-file and republish this document.
+      -->
+      <title>bma_vol_history89</title>
+      <meta name="generator" content="MATLAB 7.5">
+      <meta name="date" content="2012-06-21">
+      <meta name="m-file" content="bma_vol_history89"><style>
+
+body {
+  background-color: white;
+  margin:10px;
+}
+
+h1 {
+  color: #990000; 
+  font-size: x-large;
+}
+
+h2 {
+  color: #990000;
+  font-size: medium;
+}
+
+/* Make the text shrink to fit narrow windows, but not stretch too far in 
+wide windows. */ 
+p,h1,h2,div.content div {
+  max-width: 600px;
+  /* Hack for IE6 */
+  width: auto !important; width: 600px;
+}
+
+pre.codeinput {
+  background: #EEEEEE;
+  padding: 10px;
+}
+@media print {
+  pre.codeinput {word-wrap:break-word; width:100%;}
+} 
+
+span.keyword {color: #0000FF}
+span.comment {color: #228B22}
+span.string {color: #A020F0}
+span.untermstring {color: #B20000}
+span.syscmd {color: #B28C00}
+
+pre.codeoutput {
+  color: #666666;
+  padding: 10px;
+}
+
+pre.error {
+  color: red;
+}
+
+p.footer {
+  text-align: right;
+  font-size: xx-small;
+  font-weight: lighter;
+  font-style: italic;
+  color: gray;
+}
+
+  </style></head>
+   <body>
+      <div class="content">
+         <h2>Contents</h2>
+         <div>
+            <ul>
+               <li><a href="#2">Below is to load the LIBOR volatility surface real time</a></li>
+               <li><a href="#3">Below is to load the historical data for BMA basis curve, BMA fixed</a></li>
+               <li><a href="#4">given the time frame</a></li>
+               <li><a href="#5">Below is to calculate the fwd BMA rate, LIBOR rate and fwd BMA/LIBOR</a></li>
+               <li><a href="#6">ratio</a></li>
+               <li><a href="#7">get the dynamics - the daily change</a></li>
+               <li><a href="#8">Calibration to market quotes</a></li>
+               <li><a href="#10">override 3M using cap vol</a></li>
+            </ul>
+         </div><pre class="codeinput"><span class="keyword">function</span> [vol_matrix_summit,bma_vol_matrix,libor_vol_matrix,bma_rates,ratio_vol,r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,ddate,snapshot_time] = bma_vol_history89(ddate,time_frame);
+<span class="comment">% Input Parameter</span>
+<span class="comment">% ddate : the date</span>
+<span class="comment">% time_frame : the time window to estimate the non-libor factors volatility</span>
+
+<span class="comment">% Sample call: [vol_matrix_summit,bma_vol_matrix,libor_vol_matrix,bma_rates,ratio_vol,r_bma_ratio,r_bma_basis,r_bma,r_libor,ddate,snapshot_time] = bma_vol_realtime(60);</span>
+</pre><h2>Below is to load the LIBOR volatility surface real time<a name="2"></a></h2><pre class="codeinput"><span class="comment">%ddate_now = datestr(now);</span>
+<span class="comment">%ddate = ddate_now(1:11);</span>
+</pre><h2>Below is to load the historical data for BMA basis curve, BMA fixed<a name="3"></a></h2>
+         <h2>given the time frame<a name="4"></a></h2><pre class="codeinput">[r_bma_ratio,r_bma_basis,r_bma,r_libor]= get_history_data(ddate,time_frame);
+</pre><h2>Below is to calculate the fwd BMA rate, LIBOR rate and fwd BMA/LIBOR<a name="5"></a></h2>
+         <h2>ratio<a name="6"></a></h2><pre class="codeinput"><span class="comment">%[fwd_bma,fwd_libor,fwd_ratio] = produce_bma_fwd(ddate,r_bma_basis,r_libor);</span>
+[fwd_bma,fwd_libor,fwd_ratio] = produce_bma_fwd_new1(ddate,r_bma_basis,r_libor);
+<span class="comment">%[fwd_bma,fwd_libor,fwd_ratio] = produce_bma_fwd_new2(ddate,r_bma_basis,r_libor);</span>
+[nobs,nnodes] = size(r_bma);
+</pre><h2>get the dynamics - the daily change<a name="7"></a></h2><pre class="codeinput">dr_libor = diff(r_libor);
+dr_bma= diff(r_bma);
+dr_bma_basis = diff(r_bma_basis);
+
+<span class="comment">%BMA-basis spread to BMA-fixed;</span>
+spread_to_bma_fixed = diff(r_bma_basis - r_bma);
+
+<span class="comment">%BMA-basis spread change to %LIBOR</span>
+<span class="comment">%spread_to_libor = dr_bma_basis - dr_libor.*r_bma_basis(1:nobs-1,:);</span>
+spread_to_libor = dr_bma_basis - dr_libor.*r_bma_ratio(1:nobs-1,:)./100;
+
+corr_libor = zeros(12,12); <span class="comment">% alpha</span>
+corr_bma = zeros(12,12);   <span class="comment">% beta</span>
+corr_bma_libor = zeros(12,12);    <span class="comment">% rho</span>
+
+time_start = 1;
+time_end = nobs-1;
+
+<span class="comment">% alpha -correlation to capture bma basis relative to the mean-reverting libor short rate</span>
+<span class="keyword">for</span> i = 1:1:12
+    <span class="keyword">for</span> j =1:1:12
+        <span class="comment">%R = corrcoef(spread_to_libor(time_start:time_end,i),r_libor(time_start:time_end,j));</span>
+        R = corrcoef(spread_to_libor(time_start:time_end,i),dr_libor(time_start:time_end,j));
+        corr_libor(i,j) = R(1,2);
+    <span class="keyword">end</span>;
+<span class="keyword">end</span>;
+<span class="comment">% beta - correlation to capture the bma basis with bma short rate</span>
+<span class="keyword">for</span> i = 1:1:12
+    <span class="keyword">for</span> j =1:1:12
+        <span class="comment">%    R = corrcoef(r_bma_basis(time_start:time_end,i),r_bma(time_start:time_end,j));</span>
+        <span class="comment">%    R = corrcoef(spread_to_libor(time_start:time_end,i),r_bma(time_start:time_end,j));</span>
+             R = corrcoef(spread_to_libor(time_start:time_end,i),dr_bma(time_start:time_end,j));
+        corr_bma(i,j) = R(1,2);
+    <span class="keyword">end</span>;
+<span class="keyword">end</span>;
+<span class="comment">% rho - correlation to capture the bma fixed and  libor correlation</span>
+<span class="keyword">for</span> i = 1:1:12
+    <span class="keyword">for</span> j =1:1:12
+        <span class="comment">%R = corrcoef(dr_bma(time_start:time_end,i),dr_libor(time_start:time_end,j));</span>
+        R = corrcoef(r_bma(time_start:time_end,i),r_libor(time_start:time_end,j));
+        corr_bma_libor(i,j) = R(1,2);
+    <span class="keyword">end</span>;
+<span class="keyword">end</span>;
+
+<span class="comment">%  get the live LIBOR surface</span>
+[r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,libor_vol_matrix,libor_vol_interp,snapshot_time1,snapshot_time2]= get_realtime_data1(ddate);
+<span class="comment">%[r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,libor_vol_matrix,libor_vol_interp,snapshot_time1,snapshot_time2]= get_realtime_data_prebon(ddate);</span>
+
+<span class="comment">%[r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,libor_vol_matrix,libor_vol_interp,snapshot_time1,snapshot_time2]= get_realtime_data2();</span>
+snapshot_time = snapshot_time2;
+
+<span class="comment">% Interpret libor_vol_matrix</span>
+libor_vol_matrix(:,8:9) = []; <span class="comment">% 8Y9Y is missing;</span>
+libor_vol_matrix(:,6)  = [];
+<span class="keyword">for</span> i=1:1:18
+    <span class="keyword">if</span> libor_vol_matrix(i,8) &gt;0
+        libor_vol_matrix(i,8) = libor_vol_matrix(i,8);
+    <span class="keyword">else</span>
+       libor_vol_matrix(i,8) = (libor_vol_matrix(i,7).*3 + libor_vol_matrix(i,9).*2)./5;
+    <span class="keyword">end</span>;
+<span class="keyword">end</span>;
+
+<span class="comment">%controling factor based on calibration of the level of  ATM vol to the historical vol of LIBOR</span>
+cauthy_tuning_constant = 1;
+libor_vol_avg = mean(mean(libor_vol_matrix));
+libor_vol_ts = std(r_libor)./mean(r_libor).*100;
+level = libor_vol_avg./libor_vol_ts.*cauthy_tuning_constant;
+
+<span class="comment">%bma_vol_libor_base = libor_vol_matrix.*repmat(r_bma_ratio1,18,1)./100;</span>
+bma_vol_libor_base = libor_vol_matrix.*fwd_ratio;
+bma_vol_libor = libor_vol_matrix.*repmat(diag(corr_libor),1,18)';
+<span class="comment">% annualized bma spread ts vol</span>
+bma_fixed_vol = repmat(std(r_bma(time_start:time_end,:)),18,1)*sqrt(260);
+<span class="comment">% translate that to the percentage vol</span>
+bma_vol_fixed = bma_fixed_vol.*repmat(diag(corr_bma),1,18)'.*repmat(level,18,1);
+<span class="comment">%bma_vol_fixed = bma_fixed_vol.*repmat(diag(corr_bma),1,18)'.*sqrt(260);</span>
+bma_vol_corr  = bma_vol_libor.*bma_vol_fixed.*repmat(diag(corr_bma_libor),1,18)';
+
+<span class="comment">%bma_vol_2factors = sqrt(bma_vol_libor_base.^2+bma_vol_libor.^2 + bma_vol_fixed.^2 + 2*bma_vol_corr);</span>
+<span class="comment">%bma_vol_2factors = sqrt(bma_vol_libor_base.^2+bma_vol_libor.^2 + bma_vol_fixed.^2 + bma_vol_corr);</span>
+bma_vol_residual = sqrt(bma_vol_libor.^2 + bma_vol_fixed.^2 + bma_vol_corr);
+bma_vol_2factors = sqrt(bma_vol_libor_base.^2+bma_vol_libor.^2 + bma_vol_fixed.^2 + bma_vol_corr);
+
+<span class="comment">% improvement can be made here to better tune the residual</span>
+
+bma_vol_matrix = bma_vol_2factors;
+</pre><h2>Calibration to market quotes<a name="8"></a></h2>
+         <p>Method one: paparall shit based on the average quotes diference</p><pre class="codeinput"><span class="comment">%bma_vol_matrix = bma_vol_matrix + 1.3;</span>
+
+<span class="comment">% Method two : paparall shit based on the average ratio</span>
+<span class="comment">% Calculate the calibration ratio</span>
+<span class="comment">% Market quote 5x5, 5x10,5x20 ; 10x5,  10x10,10x20 , using average ratio</span>
+<span class="comment">% with the old vol output - the calibration ratio and constant are based</span>
+<span class="comment">% onthe regression result.</span>
+
+<span class="comment">% default value is 1 and 0</span>
+<span class="comment">%calibration_ratio = 1;</span>
+<span class="comment">%calibration_constant = 0;</span>
+calibration_ratio = 1.04;
+calibration_constant = 0.4;
+bma_vol_matrix = bma_vol_matrix .* calibration_ratio + calibration_constant ;
+
+<span class="comment">% Method three : shit based on the shape of  the vol surface calibrated to</span>
+<span class="comment">% the difference with market quotes</span>
+<span class="comment">%bma_vol_matrix = bma_vol_matrix + 1.3;</span>
+</pre><pre class="codeinput"><span class="comment">%figure;</span>
+subplot(2,2,1);
+<span class="comment">%expiry = [1/12;3/12;6/12;1;2;3;4;5;7;10]';</span>
+expiry = [1/12;3/12;6/12;9/12;1;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+tenor = [1;2;3;4;5;7;10;12;15;20;25;30]';
+[X,Y] = meshgrid(tenor,expiry);
+surf(X,Y,libor_vol_matrix);
+view(65,15);
+
+subplot(2,2,4);
+<span class="comment">%expiry = [1/12;3/12;6/12;1;2;3;4;5;7;10]';</span>
+expiry = [1/12;3/12;6/12;9/12;1;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+tenor = [1;2;3;4;5;7;10;12;15;20;25;30]';
+[X,Y] = meshgrid(tenor,expiry);
+<span class="comment">%surf(X,Y,bma_vol_matrix);</span>
+surf(X,Y,bma_vol_matrix - libor_vol_matrix);
+view(65,15);
+
+ratio_vol =bma_vol_matrix./libor_vol_matrix;
+ratio_r = r_bma_ratio(nobs,:);
+
+expiry1 = [1/52;1/12;2/12;3/12;6/12;9/12;1;1.5;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+tenor1 = [3/12;6/12;1;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+[X1,Y1] = meshgrid(tenor1,expiry1);
+vol_matrix_summit = interp2(X,Y,bma_vol_matrix,X1,Y1);
+
+<span class="comment">% the above will return valid value  for 2:17 , we need interpret</span>
+vol_matrix_summit(1,:)= 2.*vol_matrix_summit(2,:)-vol_matrix_summit(3,:);
+<span class="comment">%vol_matrix_summit(18,:)= 2.*vol_matrix_summit(17,:)-vol_matrix_summit(16,:);</span>
+<span class="comment">%vol_matrix_summit(19,:)= 2.*vol_matrix_summit(18,:)-vol_matrix_summit(17,:);</span>
+<span class="comment">%vol_matrix_summit(20,:)= 2.*vol_matrix_summit(19,:)-vol_matrix_summit(18,:);</span>
+<span class="comment">%vol_matrix_summit(21,:)= 2.*vol_matrix_summit(20,:)-vol_matrix_summit(19,:);</span>
+
+vol_matrix_summit(:,2)= vol_matrix_summit(:,3) - (vol_matrix_summit(:,3)-vol_matrix_summit(:,4)).*0.1;
+vol_matrix_summit(:,1)= vol_matrix_summit(:,2) - (vol_matrix_summit(:,2)-vol_matrix_summit(:,3)).*0.1;
+subplot(2,2,2);
+surf(X1,Y1,vol_matrix_summit);
+view(65,15);
+
+subplot(2,2,3);
+surf(X,Y,ratio_vol);
+view(0,0);
+
+r_bma_basis1 = r_bma_ratio1.*r_libor1./100;
+bma_rates = r_bma_basis1;
+</pre><h2>override 3M using cap vol<a name="10"></a></h2><pre class="codeinput"><span class="comment">%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%</span>
+vol_matrix_summit = using_cap_vol89(r_bma_ratio1,vol_matrix_summit);
+<span class="comment">%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%</span>
+
+export_SUMMI_history(vol_matrix_summit,snapshot_time);
+export_SUMMI_london_new(vol_matrix_summit,snapshot_time);
+<span class="comment">%export_SUMMI_newyork(vol_matrix_summit,snapshot_time);</span>
+<span class="comment">%export_SUMMI_libor(libor_vol_matrix,snapshot_time);</span>
+
+ddate3 = datestr(snapshot_time,<span class="string">'yyyymmdd_HHMM'</span>);
+<span class="comment">%filename = ['Z:\Research\market data\BMA Vol EoD\mat_raw\swaptionvol.market_import_bma_' ddate3 '.mat'];</span>
+filename = [<span class="string">'P:\001860_DP_USNY_Products_Research\market data\BMA vol raw data\swaptionvol.market_import_bma_'</span> ddate3 <span class="string">'_EoD.mat'</span>];
+
+<span class="comment">%[SKEW,snapshot_time3]= get_realtime_skew();</span>
+save(filename);
+
+<span class="comment">% print_fwd_history(ddate,fwd_libor,fwd_bma,fwd_ratio);</span>
+</pre><p class="footer"><br>
+            Published with MATLAB&reg; 7.5<br></p>
+      </div>
+      <!--
+##### SOURCE BEGIN #####
+function [vol_matrix_summit,bma_vol_matrix,libor_vol_matrix,bma_rates,ratio_vol,r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,ddate,snapshot_time] = bma_vol_history89(ddate,time_frame);
+% Input Parameter 
+% ddate : the date
+% time_frame : the time window to estimate the non-libor factors volatility
+
+% Sample call: [vol_matrix_summit,bma_vol_matrix,libor_vol_matrix,bma_rates,ratio_vol,r_bma_ratio,r_bma_basis,r_bma,r_libor,ddate,snapshot_time] = bma_vol_realtime(60);
+
+%%  Below is to load the LIBOR volatility surface real time
+%ddate_now = datestr(now);
+%ddate = ddate_now(1:11);
+
+%%  Below is to load the historical data for BMA basis curve, BMA fixed
+%%  given the time frame
+[r_bma_ratio,r_bma_basis,r_bma,r_libor]= get_history_data(ddate,time_frame);
+
+%% Below is to calculate the fwd BMA rate, LIBOR rate and fwd BMA/LIBOR
+%% ratio
+%[fwd_bma,fwd_libor,fwd_ratio] = produce_bma_fwd(ddate,r_bma_basis,r_libor);
+[fwd_bma,fwd_libor,fwd_ratio] = produce_bma_fwd_new1(ddate,r_bma_basis,r_libor);
+%[fwd_bma,fwd_libor,fwd_ratio] = produce_bma_fwd_new2(ddate,r_bma_basis,r_libor);
+[nobs,nnodes] = size(r_bma);
+
+%%  get the dynamics - the daily change
+dr_libor = diff(r_libor);
+dr_bma= diff(r_bma);
+dr_bma_basis = diff(r_bma_basis);
+
+%BMA-basis spread to BMA-fixed;
+spread_to_bma_fixed = diff(r_bma_basis - r_bma);
+
+%BMA-basis spread change to %LIBOR
+%spread_to_libor = dr_bma_basis - dr_libor.*r_bma_basis(1:nobs-1,:);
+spread_to_libor = dr_bma_basis - dr_libor.*r_bma_ratio(1:nobs-1,:)./100;
+
+corr_libor = zeros(12,12); % alpha
+corr_bma = zeros(12,12);   % beta
+corr_bma_libor = zeros(12,12);    % rho
+
+time_start = 1;
+time_end = nobs-1;
+
+% alpha -correlation to capture bma basis relative to the mean-reverting libor short rate 
+for i = 1:1:12
+    for j =1:1:12
+        %R = corrcoef(spread_to_libor(time_start:time_end,i),r_libor(time_start:time_end,j));
+        R = corrcoef(spread_to_libor(time_start:time_end,i),dr_libor(time_start:time_end,j));
+        corr_libor(i,j) = R(1,2);
+    end;
+end;
+% beta - correlation to capture the bma basis with bma short rate
+for i = 1:1:12
+    for j =1:1:12
+        %    R = corrcoef(r_bma_basis(time_start:time_end,i),r_bma(time_start:time_end,j));
+        %    R = corrcoef(spread_to_libor(time_start:time_end,i),r_bma(time_start:time_end,j));
+             R = corrcoef(spread_to_libor(time_start:time_end,i),dr_bma(time_start:time_end,j));
+        corr_bma(i,j) = R(1,2);
+    end;
+end;
+% rho - correlation to capture the bma fixed and  libor correlation 
+for i = 1:1:12
+    for j =1:1:12
+        %R = corrcoef(dr_bma(time_start:time_end,i),dr_libor(time_start:time_end,j));
+        R = corrcoef(r_bma(time_start:time_end,i),r_libor(time_start:time_end,j));
+        corr_bma_libor(i,j) = R(1,2);
+    end;
+end;
+
+%  get the live LIBOR surface
+[r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,libor_vol_matrix,libor_vol_interp,snapshot_time1,snapshot_time2]= get_realtime_data1(ddate);
+%[r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,libor_vol_matrix,libor_vol_interp,snapshot_time1,snapshot_time2]= get_realtime_data_prebon(ddate);
+
+%[r_bma_ratio1,r_bma_basis1,r_bma1,r_libor1,libor_vol_matrix,libor_vol_interp,snapshot_time1,snapshot_time2]= get_realtime_data2();
+snapshot_time = snapshot_time2;
+
+% Interpret libor_vol_matrix
+libor_vol_matrix(:,8:9) = []; % 8Y9Y is missing;
+libor_vol_matrix(:,6)  = [];   
+for i=1:1:18
+    if libor_vol_matrix(i,8) >0
+        libor_vol_matrix(i,8) = libor_vol_matrix(i,8);
+    else
+       libor_vol_matrix(i,8) = (libor_vol_matrix(i,7).*3 + libor_vol_matrix(i,9).*2)./5;
+    end;
+end;
+
+%controling factor based on calibration of the level of  ATM vol to the historical vol of LIBOR
+cauthy_tuning_constant = 1;
+libor_vol_avg = mean(mean(libor_vol_matrix));
+libor_vol_ts = std(r_libor)./mean(r_libor).*100;
+level = libor_vol_avg./libor_vol_ts.*cauthy_tuning_constant;
+
+%bma_vol_libor_base = libor_vol_matrix.*repmat(r_bma_ratio1,18,1)./100;
+bma_vol_libor_base = libor_vol_matrix.*fwd_ratio;
+bma_vol_libor = libor_vol_matrix.*repmat(diag(corr_libor),1,18)';
+% annualized bma spread ts vol
+bma_fixed_vol = repmat(std(r_bma(time_start:time_end,:)),18,1)*sqrt(260);
+% translate that to the percentage vol
+bma_vol_fixed = bma_fixed_vol.*repmat(diag(corr_bma),1,18)'.*repmat(level,18,1);
+%bma_vol_fixed = bma_fixed_vol.*repmat(diag(corr_bma),1,18)'.*sqrt(260);
+bma_vol_corr  = bma_vol_libor.*bma_vol_fixed.*repmat(diag(corr_bma_libor),1,18)';
+
+%bma_vol_2factors = sqrt(bma_vol_libor_base.^2+bma_vol_libor.^2 + bma_vol_fixed.^2 + 2*bma_vol_corr);
+%bma_vol_2factors = sqrt(bma_vol_libor_base.^2+bma_vol_libor.^2 + bma_vol_fixed.^2 + bma_vol_corr);
+bma_vol_residual = sqrt(bma_vol_libor.^2 + bma_vol_fixed.^2 + bma_vol_corr);
+bma_vol_2factors = sqrt(bma_vol_libor_base.^2+bma_vol_libor.^2 + bma_vol_fixed.^2 + bma_vol_corr);
+
+% improvement can be made here to better tune the residual 
+
+bma_vol_matrix = bma_vol_2factors;
+
+%% Calibration to market quotes
+% Method one: paparall shit based on the average quotes diference 
+%bma_vol_matrix = bma_vol_matrix + 1.3; 
+
+% Method two : paparall shit based on the average ratio 
+% Calculate the calibration ratio 
+% Market quote 5x5, 5x10,5x20 ; 10x5,  10x10,10x20 , using average ratio
+% with the old vol output - the calibration ratio and constant are based
+% onthe regression result. 
+
+% default value is 1 and 0 
+%calibration_ratio = 1; 
+%calibration_constant = 0; 
+calibration_ratio = 1.04;
+calibration_constant = 0.4;
+bma_vol_matrix = bma_vol_matrix .* calibration_ratio + calibration_constant ; 
+
+% Method three : shit based on the shape of  the vol surface calibrated to
+% the difference with market quotes
+%bma_vol_matrix = bma_vol_matrix + 1.3; 
+
+%%
+%figure;
+subplot(2,2,1);
+%expiry = [1/12;3/12;6/12;1;2;3;4;5;7;10]';
+expiry = [1/12;3/12;6/12;9/12;1;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+tenor = [1;2;3;4;5;7;10;12;15;20;25;30]';
+[X,Y] = meshgrid(tenor,expiry);
+surf(X,Y,libor_vol_matrix);
+view(65,15);
+
+subplot(2,2,4);
+%expiry = [1/12;3/12;6/12;1;2;3;4;5;7;10]';
+expiry = [1/12;3/12;6/12;9/12;1;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+tenor = [1;2;3;4;5;7;10;12;15;20;25;30]';
+[X,Y] = meshgrid(tenor,expiry);
+%surf(X,Y,bma_vol_matrix);
+surf(X,Y,bma_vol_matrix - libor_vol_matrix);
+view(65,15);
+
+ratio_vol =bma_vol_matrix./libor_vol_matrix;
+ratio_r = r_bma_ratio(nobs,:);
+
+expiry1 = [1/52;1/12;2/12;3/12;6/12;9/12;1;1.5;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+tenor1 = [3/12;6/12;1;2;3;4;5;6;7;8;9;10;15;20;25;30]';
+[X1,Y1] = meshgrid(tenor1,expiry1);
+vol_matrix_summit = interp2(X,Y,bma_vol_matrix,X1,Y1);
+
+% the above will return valid value  for 2:17 , we need interpret 
+vol_matrix_summit(1,:)= 2.*vol_matrix_summit(2,:)-vol_matrix_summit(3,:);
+%vol_matrix_summit(18,:)= 2.*vol_matrix_summit(17,:)-vol_matrix_summit(16,:);
+%vol_matrix_summit(19,:)= 2.*vol_matrix_summit(18,:)-vol_matrix_summit(17,:);
+%vol_matrix_summit(20,:)= 2.*vol_matrix_summit(19,:)-vol_matrix_summit(18,:);
+%vol_matrix_summit(21,:)= 2.*vol_matrix_summit(20,:)-vol_matrix_summit(19,:);
+
+vol_matrix_summit(:,2)= vol_matrix_summit(:,3) - (vol_matrix_summit(:,3)-vol_matrix_summit(:,4)).*0.1;
+vol_matrix_summit(:,1)= vol_matrix_summit(:,2) - (vol_matrix_summit(:,2)-vol_matrix_summit(:,3)).*0.1;
+subplot(2,2,2);
+surf(X1,Y1,vol_matrix_summit);
+view(65,15);
+
+subplot(2,2,3);
+surf(X,Y,ratio_vol);
+view(0,0);
+
+r_bma_basis1 = r_bma_ratio1.*r_libor1./100;
+bma_rates = r_bma_basis1;
+
+%% override 3M using cap vol
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+vol_matrix_summit = using_cap_vol89(r_bma_ratio1,vol_matrix_summit);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+export_SUMMI_history(vol_matrix_summit,snapshot_time);
+export_SUMMI_london_new(vol_matrix_summit,snapshot_time);
+%export_SUMMI_newyork(vol_matrix_summit,snapshot_time);
+%export_SUMMI_libor(libor_vol_matrix,snapshot_time);
+
+ddate3 = datestr(snapshot_time,'yyyymmdd_HHMM');
+%filename = ['Z:\Research\market data\BMA Vol EoD\mat_raw\swaptionvol.market_import_bma_' ddate3 '.mat'];
+filename = ['P:\001860_DP_USNY_Products_Research\market data\BMA vol raw data\swaptionvol.market_import_bma_' ddate3 '_EoD.mat'];
+
+%[SKEW,snapshot_time3]= get_realtime_skew();
+save(filename);
+
+% print_fwd_history(ddate,fwd_libor,fwd_bma,fwd_ratio);
+
+
+
+
+
+
+
+
+
+##### SOURCE END #####
+-->
+   </body>
+</html>
